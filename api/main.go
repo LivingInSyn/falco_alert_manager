@@ -17,7 +17,7 @@ var influxWriter api.WriteAPI
 
 func configLogger() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	log.Info().Str("logger setup")
+	log.Info().Msg("Logger setup")
 }
 
 func getConfig() {
