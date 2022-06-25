@@ -1,0 +1,10 @@
+server:
+- address: ":8081"
+- useSSL: false
+- certPath: ""
+- keyPath: ""
+influx:
+- url: "http://localhost:8086"
+- token: some_token_value
+- org: falco_alert_manager
+- bucket: events
