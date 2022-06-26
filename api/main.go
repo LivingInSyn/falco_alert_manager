@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"net/http"
 	"os"
 
@@ -42,8 +43,27 @@ func setupInflux(config *Config) {
 	influxWriter = influxClient.WriteAPI(config.Influx.Org, config.Influx.Bucket)
 }
 
+func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
+	response, _ := json.Marshal(payload)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	w.Write(response)
+}
+
+func respondWithError(w http.ResponseWriter, code int, message string) {
+	respondWithJSON(w, code, map[string]string{"error": message})
+}
+
 func newEvent(w http.ResponseWriter, r *http.Request) {
-	return
+	// get the event from the body and parse it
+	var fe FalcoEvent
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&fe); err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid resquest payload")
+		return
+	}
+	go write_event(fe, influxWriter)
 }
 
 func main() {
