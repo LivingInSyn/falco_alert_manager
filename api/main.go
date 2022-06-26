@@ -79,11 +79,11 @@ func main() {
 	if config.Server.UseSSL {
 		certPath := config.Server.CertPath
 		keyPath := config.Server.KeyPath
-		log.Info().Str("keypath", keyPath).Str("certPath", certPath).Msg("starting API server using SSL")
+		log.Info().Str("address", serverAddr).Str("keypath", keyPath).Str("certPath", certPath).Msg("starting API server using SSL")
 		err := http.ListenAndServeTLS(serverAddr, certPath, keyPath, r)
 		log.Fatal().Err(err).Msg("API server stopped")
 	} else {
-		log.Warn().Msg("starting API server without SSL")
+		log.Warn().Str("address", serverAddr).Msg("starting API server without SSL")
 		err := http.ListenAndServe(serverAddr, r)
 		log.Fatal().Err(err).Msg("API server stopped")
 	}
