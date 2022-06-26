@@ -7,6 +7,8 @@ import (
 	"github.com/influxdata/influxdb-client-go/v2/api"
 )
 
+// influx client docs: https://github.com/influxdata/influxdb-client-go#writes
+
 type FalcoEvent struct {
 	Output       string                 `json:"output"`
 	Priority     string                 `json:"priority"`
