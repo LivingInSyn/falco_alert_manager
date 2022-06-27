@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"time"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
@@ -37,6 +38,11 @@ func write_event(fe FalcoEvent, iWriter api.WriteAPI) {
 		map[string]string{"priority": fe.Priority, "rule": fe.Rule},
 		fe.OutputFields,
 		fe.Time)
+	p.AddTag("acknowledged", "false")
 	p.AddField("output", fe.Output)
 	iWriter.WritePoint(p)
+}
+
+func get_events(iReader api.QueryAPI, page, npp int, includeAcknowledged bool) ([]FalcoEvent, error) {
+	return nil, errors.New("not implemented")
 }

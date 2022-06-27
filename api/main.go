@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
@@ -16,6 +18,15 @@ import (
 //GLOBALS
 var influxClient influxdb2.Client
 var influxWriter api.WriteAPI
+var influxReader api.QueryAPI
+
+// setup max, min int sizes
+const UintSize = 32 << (^uint(0) >> 32 & 1) // 32 or 64
+const (
+	MaxInt  = 1<<(UintSize-1) - 1 // 1<<31 - 1 or 1<<63 - 1
+	MinInt  = -MaxInt - 1         // -1 << 31 or -1 << 63
+	MaxUint = 1<<UintSize - 1     // 1<<32 - 1 or 1<<64 - 1
+)
 
 func configLogger() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -48,6 +59,7 @@ func setupInflux(config *Config) {
 	// setup influx
 	influxClient = influxdb2.NewClient(config.Influx.Url, config.Influx.Token)
 	influxWriter = influxClient.WriteAPI(config.Influx.Org, config.Influx.Bucket)
+	influxReader = influxClient.QueryAPI(config.Influx.Org)
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
@@ -55,6 +67,26 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(response)
+}
+
+func getQueryInt(val string, dval, min, max int) (int, error) {
+	if val == "" {
+		return dval, nil
+	}
+	ival, err := strconv.Atoi(val)
+	if err != nil {
+		return -1, err
+	}
+	if ival < max && ival > min {
+		return ival, nil
+	}
+	if ival > min && ival > max {
+		return max, nil
+	}
+	if ival < min && ival < max {
+		return min, nil
+	}
+	return -1, errors.New("range error")
 }
 
 func respondWithError(w http.ResponseWriter, code int, message string) {
@@ -71,6 +103,38 @@ func newEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Debug().Interface("event", fe).Msg("got new falco event")
 	go write_event(fe, influxWriter)
+}
+
+func paginatedEvent(w http.ResponseWriter, r *http.Request) {
+	page := r.URL.Query().Get("code")
+	pageVal, err := getQueryInt(page, 0, 0, MaxInt)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid page number")
+		return
+	}
+	npp := r.URL.Query().Get("per")
+	numPerPage, err := getQueryInt(npp, 25, 1, 50)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid page number")
+		return
+	}
+	ia := r.URL.Query().Get("includeAcknowledged")
+	if ia == "" {
+		ia = "false"
+	}
+	includeAcknowledged, err := strconv.ParseBool(ia)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid argument")
+		return
+	}
+	events, err := get_events(influxReader, pageVal, numPerPage, includeAcknowledged)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
+		return
+	}
+	// todo, json serialize
+	_ = events
+	return
 }
 
 func main() {
