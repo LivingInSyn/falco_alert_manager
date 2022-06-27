@@ -19,6 +19,13 @@ var influxWriter api.WriteAPI
 
 func configLogger() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	_, dob := os.LookupEnv("FAM_DEBUG")
+	if dob {
+		log.Info().Msg("Log level set to DEBUG")
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	} else {
+		log.Info().Msg("Log level set to default")
+	}
 	log.Info().Msg("Logger setup")
 }
 
@@ -45,7 +52,6 @@ func setupInflux(config *Config) {
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	response, _ := json.Marshal(payload)
-
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	w.Write(response)
@@ -63,6 +69,7 @@ func newEvent(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid resquest payload")
 		return
 	}
+	log.Debug().Interface("event", fe).Msg("got new falco event")
 	go write_event(fe, influxWriter)
 }
 
