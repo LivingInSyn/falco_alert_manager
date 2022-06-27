@@ -1,7 +1,8 @@
 package main
 
 import (
-	"errors"
+	"context"
+	"fmt"
 	"time"
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
@@ -18,7 +19,7 @@ type FalcoEvent struct {
 	OutputFields map[string]interface{} `json:"output_fields"`
 }
 
-func write_event(fe FalcoEvent, iWriter api.WriteAPI) {
+func write_event(fe FalcoEvent, oJson string, iWriter api.WriteAPI) {
 	// sample event: https://falco.org/docs/alerts/#program-output-sending-alerts-to-network-channel
 	/*
 		{
@@ -38,11 +39,31 @@ func write_event(fe FalcoEvent, iWriter api.WriteAPI) {
 		map[string]string{"priority": fe.Priority, "rule": fe.Rule},
 		fe.OutputFields,
 		fe.Time)
+	// new events are always false
 	p.AddTag("acknowledged", "false")
 	p.AddField("output", fe.Output)
+	// store the original json, too
+	p.AddField("json", oJson)
 	iWriter.WritePoint(p)
 }
 
-func get_events(iReader api.QueryAPI, page, npp int, includeAcknowledged bool) ([]FalcoEvent, error) {
-	return nil, errors.New("not implemented")
+func get_events(iReader api.QueryAPI, page, npp int, includeAcknowledged bool) ([]string, error) {
+	offset := page * npp
+	queryConditionals := `r._measurement == "event"`
+	if !includeAcknowledged {
+		queryConditionals = fmt.Sprintf(`%s and r.acknowledged == "false"`, queryConditionals)
+	}
+	query := fmt.Sprintf(`from(bucket:"events") |> filter(fn: (r) => %s) |> limit(n: %d, offset: %d)`, queryConditionals, npp, offset)
+	result, err := iReader.Query(context.Background(), query)
+	if err != nil {
+		return nil, err
+	}
+	res := make([]string, npp)
+	for result.Next() {
+		resultJson := result.Record().ValueByKey("json")
+		if resultJson != nil {
+			res = append(res, fmt.Sprintf("%v", resultJson))
+		}
+	}
+	return res, nil
 }

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -102,7 +103,13 @@ func newEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Debug().Interface("event", fe).Msg("got new falco event")
-	go write_event(fe, influxWriter)
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
+		return
+	}
+	bodyText := string(bodyBytes)
+	go write_event(fe, bodyText, influxWriter)
 }
 
 func paginatedEvent(w http.ResponseWriter, r *http.Request) {
