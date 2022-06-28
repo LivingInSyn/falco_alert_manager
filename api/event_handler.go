@@ -51,7 +51,8 @@ func write_event(fe FalcoEvent, oJson string, iWriter api.WriteAPI) {
 func get_events(iReader api.QueryAPI, page, npp int, includeAcknowledged bool) ([]string, error) {
 	log.Debug().Int("page", page).Int("npp", npp).Bool("includeAck", includeAcknowledged).Msg("starting get_events")
 	offset := page * npp
-	queryConditionals := `r._measurement == "event"`
+	// note: we are querying where _field == json because we are going to json deserialize the events
+	queryConditionals := `r._measurement == "event" and r._field == "json"`
 	if !includeAcknowledged {
 		queryConditionals = fmt.Sprintf(`%s and r.acknowledged == "false"`, queryConditionals)
 	}
@@ -63,9 +64,9 @@ func get_events(iReader api.QueryAPI, page, npp int, includeAcknowledged bool) (
 		log.Error().Err(err).Msg("error running query")
 		return nil, err
 	}
-	res := make([]string, npp)
+	res := make([]string, 0)
 	for result.Next() {
-		resultJson := result.Record().ValueByKey("json")
+		resultJson := result.Record().ValueByKey("_value")
 		if resultJson != nil {
 			res = append(res, fmt.Sprintf("%v", resultJson))
 		}

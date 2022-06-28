@@ -78,10 +78,10 @@ func getQueryInt(val string, dval, min, max int) (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	if ival < max && ival > min {
+	if ival < max && ival >= min {
 		return ival, nil
 	}
-	if ival > min && ival > max {
+	if ival >= min && ival > max {
 		return max, nil
 	}
 	if ival < min && ival < max {
@@ -97,25 +97,25 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 func newEvent(w http.ResponseWriter, r *http.Request) {
 	// get the event from the body and parse it
 	var fe FalcoEvent
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&fe); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid resquest payload")
-		return
-	}
-	log.Debug().Interface("event", fe).Msg("got new falco event")
 	bodyBytes, err := io.ReadAll(r.Body)
 	if err != nil {
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 		return
 	}
 	bodyText := string(bodyBytes)
+	err = json.Unmarshal(bodyBytes, &fe)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
+		return
+	}
+	log.Debug().Interface("event", fe).Msg("got new falco event")
 	go write_event(fe, bodyText, influxWriter)
 }
 
 func paginatedEvent(w http.ResponseWriter, r *http.Request) {
 	log.Debug().Msg("starting paginatedEvent")
-	page := r.URL.Query().Get("code")
-	pageVal, err := getQueryInt(page, 0, 0, MaxInt)
+	page := r.URL.Query().Get("page")
+	pageVal, err := getQueryInt(page, 0, -1, MaxInt)
 	if err != nil {
 		respondWithError(w, http.StatusBadRequest, "Invalid page number")
 		return
@@ -137,11 +137,11 @@ func paginatedEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := get_events(influxReader, pageVal, numPerPage, includeAcknowledged)
 	if err != nil {
-		log.Error().Err(err).Msg("failed to get events")
+		log.Error().Err(err).Msg("failed to get events)")
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 		return
 	}
-	robj := make([]FalcoEvent, len(events))
+	robj := make([]FalcoEvent, 0)
 	for _, v := range events {
 		var fe FalcoEvent
 		if err := json.Unmarshal([]byte(v), &fe); err != nil {

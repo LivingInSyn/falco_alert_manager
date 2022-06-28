@@ -1,0 +1,1 @@
+curl -v "localhost:8081/event_paged?page=0&per=5&includeAcknowledged=false"
