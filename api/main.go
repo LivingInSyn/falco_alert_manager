@@ -2,8 +2,11 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"os"
+	"strconv"
 
 	"github.com/gorilla/mux"
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
@@ -16,6 +19,15 @@ import (
 //GLOBALS
 var influxClient influxdb2.Client
 var influxWriter api.WriteAPI
+var influxReader api.QueryAPI
+
+// setup max, min int sizes
+const UintSize = 32 << (^uint(0) >> 32 & 1) // 32 or 64
+const (
+	MaxInt  = 1<<(UintSize-1) - 1 // 1<<31 - 1 or 1<<63 - 1
+	MinInt  = -MaxInt - 1         // -1 << 31 or -1 << 63
+	MaxUint = 1<<UintSize - 1     // 1<<32 - 1 or 1<<64 - 1
+)
 
 func configLogger() {
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
@@ -48,6 +60,7 @@ func setupInflux(config *Config) {
 	// setup influx
 	influxClient = influxdb2.NewClient(config.Influx.Url, config.Influx.Token)
 	influxWriter = influxClient.WriteAPI(config.Influx.Org, config.Influx.Bucket)
+	influxReader = influxClient.QueryAPI(config.Influx.Org)
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
@@ -57,6 +70,26 @@ func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
 	w.Write(response)
 }
 
+func getQueryInt(val string, dval, min, max int) (int, error) {
+	if val == "" {
+		return dval, nil
+	}
+	ival, err := strconv.Atoi(val)
+	if err != nil {
+		return -1, err
+	}
+	if ival < max && ival >= min {
+		return ival, nil
+	}
+	if ival >= min && ival > max {
+		return max, nil
+	}
+	if ival < min && ival < max {
+		return min, nil
+	}
+	return -1, errors.New("range error")
+}
+
 func respondWithError(w http.ResponseWriter, code int, message string) {
 	respondWithJSON(w, code, map[string]string{"error": message})
 }
@@ -64,13 +97,60 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 func newEvent(w http.ResponseWriter, r *http.Request) {
 	// get the event from the body and parse it
 	var fe FalcoEvent
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&fe); err != nil {
-		respondWithError(w, http.StatusBadRequest, "Invalid resquest payload")
+	bodyBytes, err := io.ReadAll(r.Body)
+	if err != nil {
+		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
+		return
+	}
+	bodyText := string(bodyBytes)
+	err = json.Unmarshal(bodyBytes, &fe)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid request payload")
 		return
 	}
 	log.Debug().Interface("event", fe).Msg("got new falco event")
-	go write_event(fe, influxWriter)
+	go write_event(fe, bodyText, influxWriter)
+}
+
+func paginatedEvent(w http.ResponseWriter, r *http.Request) {
+	log.Debug().Msg("starting paginatedEvent")
+	page := r.URL.Query().Get("page")
+	pageVal, err := getQueryInt(page, 0, -1, MaxInt)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid page number")
+		return
+	}
+	npp := r.URL.Query().Get("per")
+	numPerPage, err := getQueryInt(npp, 25, 1, 50)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid page number")
+		return
+	}
+	ia := r.URL.Query().Get("includeAcknowledged")
+	if ia == "" {
+		ia = "false"
+	}
+	includeAcknowledged, err := strconv.ParseBool(ia)
+	if err != nil {
+		respondWithError(w, http.StatusBadRequest, "Invalid argument")
+		return
+	}
+	events, err := get_events(influxReader, pageVal, numPerPage, includeAcknowledged)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to get events)")
+		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
+		return
+	}
+	robj := make([]FalcoEvent, 0)
+	for _, v := range events {
+		var fe FalcoEvent
+		if err := json.Unmarshal([]byte(v), &fe); err != nil {
+			log.Warn().Str("input", v).Msg("failed to deserialize event from DB")
+		} else {
+			robj = append(robj, fe)
+		}
+	}
+	respondWithJSON(w, 200, robj)
 }
 
 func main() {
@@ -82,6 +162,8 @@ func main() {
 	// setup and start gorilla
 	r := mux.NewRouter()
 	r.HandleFunc("/event", newEvent).Methods("POST")
+	log.Debug().Msg("setting up event paged")
+	r.HandleFunc("/event_paged", paginatedEvent).Methods("GET")
 	serverAddr := config.Server.Address
 	if config.Server.UseSSL {
 		certPath := config.Server.CertPath

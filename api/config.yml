@@ -4,7 +4,8 @@ server:
   certPath: ""
   keyPath: ""
 influx:
-  url: "http://10.0.0.3:8086"
+  # url: "http://10.0.0.3:8086"
+  url: "http://localhost:8086"
   token: "fam_token_never_in_production_please"
   org: "falco_alert_manager"
   bucket: "events"
