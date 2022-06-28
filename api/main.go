@@ -113,6 +113,7 @@ func newEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func paginatedEvent(w http.ResponseWriter, r *http.Request) {
+	log.Debug().Msg("starting paginatedEvent")
 	page := r.URL.Query().Get("code")
 	pageVal, err := getQueryInt(page, 0, 0, MaxInt)
 	if err != nil {
@@ -136,12 +137,20 @@ func paginatedEvent(w http.ResponseWriter, r *http.Request) {
 	}
 	events, err := get_events(influxReader, pageVal, numPerPage, includeAcknowledged)
 	if err != nil {
+		log.Error().Err(err).Msg("failed to get events")
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 		return
 	}
-	// todo, json serialize
-	_ = events
-	return
+	robj := make([]FalcoEvent, len(events))
+	for _, v := range events {
+		var fe FalcoEvent
+		if err := json.Unmarshal([]byte(v), &fe); err != nil {
+			log.Warn().Str("input", v).Msg("failed to deserialize event from DB")
+		} else {
+			robj = append(robj, fe)
+		}
+	}
+	respondWithJSON(w, 200, robj)
 }
 
 func main() {
@@ -153,6 +162,8 @@ func main() {
 	// setup and start gorilla
 	r := mux.NewRouter()
 	r.HandleFunc("/event", newEvent).Methods("POST")
+	log.Debug().Msg("setting up event paged")
+	r.HandleFunc("/event_paged", paginatedEvent).Methods("GET")
 	serverAddr := config.Server.Address
 	if config.Server.UseSSL {
 		certPath := config.Server.CertPath

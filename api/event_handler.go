@@ -7,6 +7,7 @@ import (
 
 	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
 	"github.com/influxdata/influxdb-client-go/v2/api"
+	"github.com/rs/zerolog/log"
 )
 
 // influx client docs: https://github.com/influxdata/influxdb-client-go#writes
@@ -48,14 +49,18 @@ func write_event(fe FalcoEvent, oJson string, iWriter api.WriteAPI) {
 }
 
 func get_events(iReader api.QueryAPI, page, npp int, includeAcknowledged bool) ([]string, error) {
+	log.Debug().Int("page", page).Int("npp", npp).Bool("includeAck", includeAcknowledged).Msg("starting get_events")
 	offset := page * npp
 	queryConditionals := `r._measurement == "event"`
 	if !includeAcknowledged {
 		queryConditionals = fmt.Sprintf(`%s and r.acknowledged == "false"`, queryConditionals)
 	}
-	query := fmt.Sprintf(`from(bucket:"events") |> filter(fn: (r) => %s) |> limit(n: %d, offset: %d)`, queryConditionals, npp, offset)
+	// TODO: make the range configurable
+	query := fmt.Sprintf(`from(bucket:"events") |> range(start: -1w) |> filter(fn: (r) => %s) |> limit(n: %d, offset: %d)`, queryConditionals, npp, offset)
+	log.Debug().Str("query", query).Msg("running query")
 	result, err := iReader.Query(context.Background(), query)
 	if err != nil {
+		log.Error().Err(err).Msg("error running query")
 		return nil, err
 	}
 	res := make([]string, npp)
