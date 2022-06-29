@@ -41,6 +41,22 @@ type EventQueryResult struct {
 	FullEvent string
 }
 
+func create_table(p *pgxpool.Pool, ctx context.Context) {
+	createTable := `CREATE TABLE IF NOT EXISTS event (
+		time TIMESTAMPTZ NOT NULL
+		priority TEXT NOT NULL,
+		rule TEXT NOT NULL,
+		output TEXT NOT NULL,
+		eventj json,
+		ack BOOLEAN DEFAULT FALSE
+	);
+	SELECT create_hypertable('event', 'time', if_not_exists => TRUE);`
+	_, err := p.Exec(ctx, createTable)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to create timescaledb table")
+	}
+}
+
 func write_event(fe FalcoEvent, oJson string, p *pgxpool.Pool, ctx context.Context) {
 	insertStmt := `INSERT INTO event (time, priority, rule, output, eventj) VALUES ($1,$2,$3,$4,$5);`
 	_, err := p.Exec(ctx, insertStmt, fe.Time, fe.Priority, fe.Rule, fe.Output, oJson)

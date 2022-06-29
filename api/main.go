@@ -64,6 +64,7 @@ func setupTimescale(config *Config) {
 	if err != nil {
 		log.Fatal().Err(err).Msg("failed to connect to db")
 	}
+	create_table(timescaleConn, ctx)
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
