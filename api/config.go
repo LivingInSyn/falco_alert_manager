@@ -7,10 +7,9 @@ type Config struct {
 		CertPath string `yaml:"certPath"`
 		KeyPath  string `yaml:"keyPath"`
 	} `yaml:"server"`
-	Influx struct {
-		Url    string `yaml:"url"`
-		Token  string `yaml:"token"`
-		Org    string `yaml:"org"`
-		Bucket string `yaml:"bucket"`
-	} `yaml:"influx"`
+	Timescale struct {
+		Url      string `yaml:"url"`
+		Username string `yaml:"username"`
+		Password string `yaml:"password"`
+	} `yaml:"timescale"`
 }

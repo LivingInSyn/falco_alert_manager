@@ -9,22 +9,15 @@ services:
     networks:
       fam_net:
         ipv4_address: 10.0.0.2
-  influx:
-    image: influxdb:2.3
+  timescale:
+    image: timescale/timescaledb:latest-pg14
     environment:
-      - DOCKER_INFLUXDB_INIT_USERNAME=fam_root
-      - DOCKER_INFLUXDB_INIT_PASSWORD=fam_never_in_production_please
-      - DOCKER_INFLUXDB_INIT_ORG=falco_alert_manager
-      - DOCKER_INFLUXDB_INIT_BUCKET=events
-      - DOCKER_INFLUXDB_INIT_RETENTION=1w # 1 week of data retention just in case...
-      - DOCKER_INFLUXDB_INIT_ADMIN_TOKEN=fam_token_never_in_production_please
-      - DOCKER_INFLUXDB_INIT_MODE=setup
-      - INFLUXD_BOLT_PATH=/home/influxdb/.influxdbv2/influxd.bolt
+      - POSTGRES_PASSWORD=fam_never_in_production_please
     ports:
-      - "8086:8086"
+      - "5432:5432"
     networks:
       fam_net:
-        ipv4_address: 10.0.0.3
+        ipv4_address: 10.0.0.4
 networks:
   fam_net:
     ipam:

@@ -1,25 +1,25 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strconv"
 
 	"github.com/gorilla/mux"
-	influxdb2 "github.com/influxdata/influxdb-client-go/v2"
-	"github.com/influxdata/influxdb-client-go/v2/api"
+	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 	"gopkg.in/yaml.v2"
 )
 
 //GLOBALS
-var influxClient influxdb2.Client
-var influxWriter api.WriteAPI
-var influxReader api.QueryAPI
+var ctx context.Context
+var timescaleConn *pgxpool.Pool
 
 // setup max, min int sizes
 const UintSize = 32 << (^uint(0) >> 32 & 1) // 32 or 64
@@ -56,11 +56,14 @@ func getConfig(configPath string) Config {
 	return config
 }
 
-func setupInflux(config *Config) {
-	// setup influx
-	influxClient = influxdb2.NewClient(config.Influx.Url, config.Influx.Token)
-	influxWriter = influxClient.WriteAPI(config.Influx.Org, config.Influx.Bucket)
-	influxReader = influxClient.QueryAPI(config.Influx.Org)
+func setupTimescale(config *Config) {
+	ctx = context.Background()
+	connStr := fmt.Sprintf("postgres://%s:%s@%s/fam", config.Timescale.Username, config.Timescale.Password, config.Timescale.Url)
+	var err error
+	timescaleConn, err = pgxpool.Connect(ctx, connStr)
+	if err != nil {
+		log.Fatal().Err(err).Msg("failed to connect to db")
+	}
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
@@ -109,7 +112,7 @@ func newEvent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	log.Debug().Interface("event", fe).Msg("got new falco event")
-	go write_event(fe, bodyText, influxWriter)
+	go write_event(fe, bodyText, timescaleConn, ctx)
 }
 
 func paginatedEvent(w http.ResponseWriter, r *http.Request) {
@@ -135,22 +138,13 @@ func paginatedEvent(w http.ResponseWriter, r *http.Request) {
 		respondWithError(w, http.StatusBadRequest, "Invalid argument")
 		return
 	}
-	events, err := get_events(influxReader, pageVal, numPerPage, includeAcknowledged)
+	events, err := get_events(pageVal, numPerPage, includeAcknowledged, timescaleConn, ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to get events)")
 		respondWithError(w, http.StatusInternalServerError, "Something went wrong")
 		return
 	}
-	robj := make([]FalcoEvent, 0)
-	for _, v := range events {
-		var fe FalcoEvent
-		if err := json.Unmarshal([]byte(v), &fe); err != nil {
-			log.Warn().Str("input", v).Msg("failed to deserialize event from DB")
-		} else {
-			robj = append(robj, fe)
-		}
-	}
-	respondWithJSON(w, 200, robj)
+	respondWithJSON(w, 200, events)
 }
 
 func main() {
@@ -158,7 +152,7 @@ func main() {
 	configLogger()
 	config := getConfig("./config.yml")
 	// setup influx using the config values
-	setupInflux(&config)
+	setupTimescale(&config)
 	// setup and start gorilla
 	r := mux.NewRouter()
 	r.HandleFunc("/event", newEvent).Methods("POST")
