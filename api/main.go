@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v4/pgxpool"
@@ -57,14 +58,22 @@ func getConfig(configPath string) Config {
 }
 
 func setupTimescale(config *Config) {
-	ctx = context.Background()
-	connStr := fmt.Sprintf("postgres://%s:%s@%s/fam", config.Timescale.Username, config.Timescale.Password, config.Timescale.Url)
-	var err error
-	timescaleConn, err = pgxpool.Connect(ctx, connStr)
-	if err != nil {
-		log.Fatal().Err(err).Msg("failed to connect to db")
+	for true {
+		ctx = context.Background()
+		connStr := fmt.Sprintf("postgres://%s:%s@%s", config.Timescale.Username, config.Timescale.Password, config.Timescale.Url)
+		var err error
+		timescaleConn, err = pgxpool.Connect(ctx, connStr)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to connect to db, sleeping 3 seconds and trying again")
+			time.Sleep(3 * time.Second)
+			continue
+		}
+		log.Info().Msg("connected to the db")
+		create_table(timescaleConn, ctx)
+		log.Info().Msg("created table if it didn't exist")
+		break
 	}
-	create_table(timescaleConn, ctx)
+
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {

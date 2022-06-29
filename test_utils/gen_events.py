@@ -6,6 +6,7 @@ import requests
 from datetime import datetime,timedelta
 import time
 import json
+import sys
 
 def gen_event(num_events=50):
     # 2022-06-26T23:31:56.746609046Z
@@ -41,5 +42,9 @@ def gen_event(num_events=50):
         stime = stime + timedelta(hours=1)
         time.sleep(.2)
 
-
-gen_event()
+if len(sys.argv) > 1:
+    num_events = sys.argv[1]
+    num_events = int(num_events)
+else:
+    num_events = 50
+gen_event(num_events)

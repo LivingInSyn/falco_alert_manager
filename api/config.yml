@@ -4,7 +4,6 @@ server:
   certPath: ""
   keyPath: ""
 timescale:
-  url: "http://10.0.0.4:5432"
-  password: "fam_token_never_in_production_please"
+  url: "10.0.0.4:5432"
+  password: "fam_never_in_production_please"
   username: "postgres"
-  

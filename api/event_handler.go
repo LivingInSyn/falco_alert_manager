@@ -39,11 +39,12 @@ type EventQueryResult struct {
 	Rule      string
 	Output    string
 	FullEvent string
+	Ack       bool
 }
 
 func create_table(p *pgxpool.Pool, ctx context.Context) {
 	createTable := `CREATE TABLE IF NOT EXISTS event (
-		time TIMESTAMPTZ NOT NULL
+		time TIMESTAMPTZ NOT NULL,
 		priority TEXT NOT NULL,
 		rule TEXT NOT NULL,
 		output TEXT NOT NULL,
@@ -68,7 +69,7 @@ func write_event(fe FalcoEvent, oJson string, p *pgxpool.Pool, ctx context.Conte
 func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx context.Context) ([]FalcoEvent, error) {
 	log.Debug().Int("page", page).Int("npp", npp).Bool("includeAck", includeAcknowledged).Msg("starting get_events")
 	offset := page * npp
-	query := `SELECT time,priority,rule,output,evenj,ack FROM event WHERE`
+	query := `SELECT time,priority,rule,output,eventj,ack FROM event WHERE`
 	if !includeAcknowledged {
 		query = fmt.Sprintf("%s ack='false'", query)
 	} else {
@@ -86,7 +87,7 @@ func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx co
 	for rows.Next() {
 		//TODO: make a type and then setup the values from the row
 		var r EventQueryResult
-		err = rows.Scan(&r.Time, &r.Priority, &r.Rule, &r.Output, &r.FullEvent)
+		err = rows.Scan(&r.Time, &r.Priority, &r.Rule, &r.Output, &r.FullEvent, &r.Ack)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to parse row")
 		}
