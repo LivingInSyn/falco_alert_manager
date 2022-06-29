@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/rs/zerolog"
@@ -73,7 +74,6 @@ func setupTimescale(config *Config) {
 		log.Info().Msg("created table if it didn't exist")
 		break
 	}
-
 }
 
 func respondWithJSON(w http.ResponseWriter, code int, payload interface{}) {
@@ -157,6 +157,23 @@ func paginatedEvent(w http.ResponseWriter, r *http.Request) {
 	respondWithJSON(w, 200, events)
 }
 
+func ackEvent(w http.ResponseWriter, r *http.Request) {
+	vars := mux.Vars(r)
+	ID := vars["eventID"]
+	uuid, err := uuid.Parse(ID)
+	if err != nil {
+		log.Error().Err(err).Str("id", ID).Msg("got invalid uuid")
+		respondWithError(w, http.StatusBadRequest, "invalid event ID")
+	}
+	err = ack_event(uuid, timescaleConn, ctx)
+	if err != nil {
+		log.Error().Err(err).Msg("failed to ack event")
+		respondWithError(w, http.StatusInternalServerError, "something went wrong")
+	}
+	w.WriteHeader(http.StatusOK)
+	return
+}
+
 func main() {
 	// configure logger and get the config
 	configLogger()
@@ -166,8 +183,8 @@ func main() {
 	// setup and start gorilla
 	r := mux.NewRouter()
 	r.HandleFunc("/event", newEvent).Methods("POST")
-	log.Debug().Msg("setting up event paged")
-	r.HandleFunc("/event_paged", paginatedEvent).Methods("GET")
+	r.HandleFunc("/event", paginatedEvent).Methods("GET")
+	r.HandleFunc("/event/ack/{eventID}", ackEvent).Methods("PUT")
 	serverAddr := config.Server.Address
 	if config.Server.UseSSL {
 		certPath := config.Server.CertPath
