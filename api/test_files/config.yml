@@ -3,8 +3,7 @@ server:
   useSSL: false
   certPath: ""
   keyPath: ""
-influx:
-  url: "http://localhost:8086"
-  token: "some_token_value"
-  org: "falco_alert_manager"
-  bucket: "events"
+timescale:
+  url: "http://10.0.0.4:5432"
+  password: "fam_token_never_in_production_please"
+  username: "postgres"
