@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/rs/zerolog/log"
 )
@@ -34,6 +35,7 @@ type FalcoEvent struct {
 	OutputFields map[string]interface{} `json:"output_fields"`
 }
 type EventQueryResult struct {
+	ID        uuid.UUID
 	Time      time.Time
 	Priority  string
 	Rule      string
@@ -41,9 +43,14 @@ type EventQueryResult struct {
 	FullEvent string
 	Ack       bool
 }
+type EventResults struct {
+	ID    uuid.UUID
+	Event FalcoEvent
+}
 
 func create_table(p *pgxpool.Pool, ctx context.Context) {
 	createTable := `CREATE TABLE IF NOT EXISTS event (
+		id uuid DEFAULT gen_random_uuid(),
 		time TIMESTAMPTZ NOT NULL,
 		priority TEXT NOT NULL,
 		rule TEXT NOT NULL,
@@ -66,10 +73,19 @@ func write_event(fe FalcoEvent, oJson string, p *pgxpool.Pool, ctx context.Conte
 	}
 }
 
-func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx context.Context) ([]FalcoEvent, error) {
+func ack_event(id uuid.UUID, p *pgxpool.Pool, ctx context.Context) error {
+	updateStmt := `UPDATE event SET ack='TRUE' WHERE id=$1`
+	_, err := p.Exec(ctx, updateStmt, id.String())
+	if err != nil {
+		log.Error().Err(err).Msg("failed to update alert ID")
+	}
+	return err
+}
+
+func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx context.Context) ([]EventResults, error) {
 	log.Debug().Int("page", page).Int("npp", npp).Bool("includeAck", includeAcknowledged).Msg("starting get_events")
 	offset := page * npp
-	query := `SELECT time,priority,rule,output,eventj,ack FROM event WHERE`
+	query := `SELECT id,time,priority,rule,output,eventj,ack FROM event WHERE`
 	if !includeAcknowledged {
 		query = fmt.Sprintf("%s ack='false'", query)
 	} else {
@@ -87,19 +103,19 @@ func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx co
 	for rows.Next() {
 		//TODO: make a type and then setup the values from the row
 		var r EventQueryResult
-		err = rows.Scan(&r.Time, &r.Priority, &r.Rule, &r.Output, &r.FullEvent, &r.Ack)
+		err = rows.Scan(&r.ID, &r.Time, &r.Priority, &r.Rule, &r.Output, &r.FullEvent, &r.Ack)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to parse row")
 		}
 		results = append(results, r)
 	}
-	var robj []FalcoEvent
+	var robj []EventResults
 	for _, r := range results {
 		var fe FalcoEvent
 		if err := json.Unmarshal([]byte(r.FullEvent), &fe); err != nil {
 			log.Error().Str("input", r.FullEvent).Msg("failed to deserialize event from DB")
 		} else {
-			robj = append(robj, fe)
+			robj = append(robj, EventResults{ID: r.ID, Event: fe})
 		}
 	}
 	return robj, nil
