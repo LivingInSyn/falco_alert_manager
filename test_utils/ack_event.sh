@@ -1,1 +1,1 @@
-curl -v -XPUT "localhost:8081/event/ack/$1"
+curl -s -XPUT -H "Content-Type: application/json" -d '{"comment":"foo bar baz"}' "http://localhost:8081/event/ack/$1"

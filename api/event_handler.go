@@ -42,10 +42,16 @@ type EventQueryResult struct {
 	Output    string
 	FullEvent string
 	Ack       bool
+	Comment   string
 }
 type EventResults struct {
-	ID    uuid.UUID
-	Event FalcoEvent
+	ID      uuid.UUID  `json:"ID"`
+	Event   FalcoEvent `json:"event"`
+	Ack     bool       `json:"ack"`
+	Comment string     `json:"comment"`
+}
+type AckReq struct {
+	Comment string `json:"comment"`
 }
 
 func create_table(p *pgxpool.Pool, ctx context.Context) {
@@ -56,7 +62,8 @@ func create_table(p *pgxpool.Pool, ctx context.Context) {
 		rule TEXT NOT NULL,
 		output TEXT NOT NULL,
 		eventj json,
-		ack BOOLEAN DEFAULT FALSE
+		ack BOOLEAN DEFAULT FALSE,
+		comment TEXT NOT NULL DEFAULT ''
 	);
 	SELECT create_hypertable('event', 'time', if_not_exists => TRUE);`
 	_, err := p.Exec(ctx, createTable)
@@ -73,9 +80,9 @@ func write_event(fe FalcoEvent, oJson string, p *pgxpool.Pool, ctx context.Conte
 	}
 }
 
-func ack_event(id uuid.UUID, p *pgxpool.Pool, ctx context.Context) error {
-	updateStmt := `UPDATE event SET ack='TRUE' WHERE id=$1`
-	_, err := p.Exec(ctx, updateStmt, id.String())
+func ack_event(id uuid.UUID, ackReq AckReq, p *pgxpool.Pool, ctx context.Context) error {
+	updateStmt := `UPDATE event SET ack='TRUE', comment=$1 WHERE id=$2`
+	_, err := p.Exec(ctx, updateStmt, ackReq.Comment, id.String())
 	if err != nil {
 		log.Error().Err(err).Msg("failed to update alert ID")
 	}
@@ -85,12 +92,11 @@ func ack_event(id uuid.UUID, p *pgxpool.Pool, ctx context.Context) error {
 func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx context.Context) ([]EventResults, error) {
 	log.Debug().Int("page", page).Int("npp", npp).Bool("includeAck", includeAcknowledged).Msg("starting get_events")
 	offset := page * npp
-	query := `SELECT id,time,priority,rule,output,eventj,ack FROM event WHERE`
+	query := `SELECT id,time,priority,rule,output,eventj,ack,comment FROM event`
 	if !includeAcknowledged {
-		query = fmt.Sprintf("%s ack='false'", query)
-	} else {
-		query = fmt.Sprintf("%s ack='true'", query)
+		query = fmt.Sprintf("%s WHERE ack='false'", query)
 	}
+	//note: if we add future conditionals we'll have to be more careful about the WHERE
 	// npp and offset are safe from injection since they're verified ints here
 	query = fmt.Sprintf("%s LIMIT %d OFFSET %d", query, npp, offset)
 	rows, err := p.Query(ctx, query)
@@ -103,7 +109,7 @@ func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx co
 	for rows.Next() {
 		//TODO: make a type and then setup the values from the row
 		var r EventQueryResult
-		err = rows.Scan(&r.ID, &r.Time, &r.Priority, &r.Rule, &r.Output, &r.FullEvent, &r.Ack)
+		err = rows.Scan(&r.ID, &r.Time, &r.Priority, &r.Rule, &r.Output, &r.FullEvent, &r.Ack, &r.Comment)
 		if err != nil {
 			log.Error().Err(err).Msg("failed to parse row")
 		}
@@ -115,7 +121,7 @@ func get_events(page, npp int, includeAcknowledged bool, p *pgxpool.Pool, ctx co
 		if err := json.Unmarshal([]byte(r.FullEvent), &fe); err != nil {
 			log.Error().Str("input", r.FullEvent).Msg("failed to deserialize event from DB")
 		} else {
-			robj = append(robj, EventResults{ID: r.ID, Event: fe})
+			robj = append(robj, EventResults{ID: r.ID, Event: fe, Ack: r.Ack, Comment: r.Comment})
 		}
 	}
 	return robj, nil
