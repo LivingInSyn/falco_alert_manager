@@ -94,7 +94,7 @@ func getQueryInt(val string, dval, min, max int) (int, error) {
 	if ival < max && ival >= min {
 		return ival, nil
 	}
-	if ival >= min && ival > max {
+	if ival >= min && ival >= max {
 		return max, nil
 	}
 	if ival < min && ival < max {
@@ -158,6 +158,7 @@ func paginatedEvent(w http.ResponseWriter, r *http.Request) {
 }
 
 func ackEvent(w http.ResponseWriter, r *http.Request) {
+	// get the event ID
 	vars := mux.Vars(r)
 	ID := vars["eventID"]
 	uuid, err := uuid.Parse(ID)
@@ -165,7 +166,14 @@ func ackEvent(w http.ResponseWriter, r *http.Request) {
 		log.Error().Err(err).Str("id", ID).Msg("got invalid uuid")
 		respondWithError(w, http.StatusBadRequest, "invalid event ID")
 	}
-	err = ack_event(uuid, timescaleConn, ctx)
+	// get the AckReq from the body
+	var ar AckReq
+	err = json.NewDecoder(r.Body).Decode(&ar)
+	if err != nil {
+		log.Error().Err(err).Msg("got invalid body in ackEvent")
+		respondWithError(w, http.StatusBadRequest, "invalid request")
+	}
+	err = ack_event(uuid, ar, timescaleConn, ctx)
 	if err != nil {
 		log.Error().Err(err).Msg("failed to ack event")
 		respondWithError(w, http.StatusInternalServerError, "something went wrong")
